@@ -1,6 +1,18 @@
+from typing import List, Tuple
 import os.path
 from typing import Protocol, List
 
+import nltk
+import numpy as np
+import pandas as pd
+import torch
+from gensim.models import Word2Vec
+from nltk.tokenize import sent_tokenize, word_tokenize
+from sklearn.model_selection import train_test_split
+from torch import Tensor
+from torch import nn
+from torch.types import Device
+from torchtext.vocab import build_vocab_from_iterator, Vocab
 from gensim.models import Word2Vec, FastText
 from nltk.tokenize import sent_tokenize
 
