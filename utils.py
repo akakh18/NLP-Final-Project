@@ -1,11 +1,10 @@
+import os.path
 from typing import Protocol, List
 
 from gensim.models import Word2Vec, FastText
 from nltk.tokenize import sent_tokenize
 
 INIT_DATA = [["გამარჯობა", "როგორ", "ხარ?"], ["რავი", "კარგად", "შენ?"]]
-
-CHECK_NON_EMPTY_FN = lambda s: len(s) > 0
 
 
 def strip_word(word: str) -> str:
@@ -39,11 +38,12 @@ class GeorgianModel(Protocol):
 
 
 class GeorgianWord2VecModel:
-    def __init__(self) -> None:
+    def __init__(self, load: bool = False) -> None:
         print("Initializing data")
         self.__model_name = "word2vec.model"
-        model = Word2Vec(sentences=INIT_DATA, vector_size=100, window=5, min_count=1, workers=4, epochs=3)
-        model.save(self.__model_name)
+        if not load or not os.path.exists(self.__model_name):
+            model = Word2Vec(sentences=INIT_DATA, vector_size=100, window=5, min_count=1, workers=4, epochs=3)
+            model.save(self.__model_name)
         print("Model created!")
 
     def get_model(self) -> Word2Vec:
@@ -61,11 +61,12 @@ class GeorgianWord2VecModel:
 
 
 class GeorgianFastTextModel:
-    def __init__(self) -> None:
+    def __init__(self, load: bool = False) -> None:
         print("Initializing data")
         self.__model_name = "fasttext.model"
-        model = FastText(sentences=INIT_DATA, vector_size=100, window=5, min_count=1, workers=4, epochs=3)
-        model.save(self.__model_name)
+        if not load or not os.path.exists(self.__model_name):
+            model = FastText(sentences=INIT_DATA, vector_size=100, window=5, min_count=1, workers=4, epochs=3)
+            model.save(self.__model_name)
         print("Model created!")
 
     def get_model(self) -> FastText:
@@ -80,7 +81,3 @@ class GeorgianFastTextModel:
 
     def get_vector(self, word: str) -> List[int]:
         return FastText.load(self.__model_name).wv.get_vector(word)
-
-
-if __name__ == "__main__":
-    print(convert_file_into_input("data/data2.txt"))
