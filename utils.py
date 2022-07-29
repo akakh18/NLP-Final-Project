@@ -45,6 +45,9 @@ class GeorgianWord2Vec:
 	def get_vector(self, word: str) -> List[int]:
 		return Word2Vec.load(self.__model_name).wv[word]
 
+	def get_embeddings(self):
+		return list(self.get_model().wv.index_to_key)
+
 	@staticmethod
 	def __convert_file_into_input(file_path: str) -> List[List[str]]:
 		with open(file_path, 'r') as f:
@@ -57,7 +60,7 @@ class GeorgianWord2Vec:
 
 
 class GeorgianLanguageDatasetLoader:
-	def __init__(self, file_path: str, batch_size=20, device="cpu") -> None:
+	def __init__(self, file_path: str, batch_size=10, device="cpu") -> None:
 		data = open(file_path, encoding="utf-8").read().split("\n")
 		df = pd.DataFrame(data, columns=["sentence"])
 		train, test = train_test_split(df["sentence"].tolist(), train_size=0.6,
@@ -67,7 +70,7 @@ class GeorgianLanguageDatasetLoader:
 		valid_iter = valid
 		test_iter = test
 		self.vocab = build_vocab_from_iterator(map(word_tokenize, train_iter),
-											   specials=['<unk>', '<bos>', '<eos>'])
+											   specials=['<unk>'])
 		self.vocab.set_default_index(self.vocab['<unk>'])
 		self.train_data = self.__data_process(train_iter)
 		self.valid_data = self.__data_process(valid_iter)
@@ -116,15 +119,15 @@ class GeorgianLanguageDatasetLoader:
 
 def batchify(data: Tensor, bsz: int, device: Device) -> Tensor:
 	"""Divides the data into bsz separate sequences, removing extra elements
-	that wouldn't cleanly fit.
+    that wouldn't cleanly fit.
 
-	Args:
-		data: Tensor, shape [N]
-		bsz: int, batch size
+    Args:
+        data: Tensor, shape [N]
+        bsz: int, batch size
 
-	Returns:
-		Tensor of shape [bsz, N // bsz]
-	"""
+    Returns:
+        Tensor of shape [bsz, N // bsz]
+    """
 	seq_len = data.size(0) // bsz
 	data = data[:seq_len * bsz]
 	data = data.view(bsz, seq_len)
@@ -133,31 +136,47 @@ def batchify(data: Tensor, bsz: int, device: Device) -> Tensor:
 
 def get_batch(source: Tensor, i: int, bptt=10) -> Tuple[Tensor, Tensor]:
 	"""
-	Args:
-		source: Tensor, shape [batch_size, full_seq_len]
-		i: int
+    Args:
+        source: Tensor, shape [batch_size, full_seq_len]
+        i: int
 
-	Returns:
-		tuple (data, target), where data has shape [batch_size, seq_len] and
-		target has shape [seq_len * batch_size]
-	"""
+    Returns:
+        tuple (data, target), where data has shape [batch_size, seq_len] and
+        target has shape [seq_len * batch_size]
+    """
 	seq_len = min(bptt, source.size(1) - i)
 	data = source[:, i:i + seq_len]
 	target = source[:, i + 1:i + 1 + seq_len]
+	if data.shape != target.shape:
+		return data, data
 	return data, target
 
 
+def create_emb_layer(weights_matrix, non_trainable=False):
+	num_embeddings, embedding_dim = weights_matrix.size()
+	emb_layer = nn.Embedding(num_embeddings, embedding_dim)
+	emb_layer.load_state_dict({'weight': weights_matrix})
+	if non_trainable:
+		emb_layer.weight.requires_grad = False
+
+	return emb_layer, num_embeddings, embedding_dim
+
+
 class LSTMModel(nn.Module):
-	def __init__(self, embedding_dim, hidden_size, vocab_size, device, num_layers=1):
+	def __init__(self, embedding_dim, hidden_size, vocab_size, device, num_layers=1,
+				 embeddings=None):
 		super().__init__()
+		if embeddings is not None:
+			self.emb, num_embeddings, embedding_dim = create_emb_layer(embeddings, True)
+		else:
+			self.emb = nn.Embedding(num_embeddings=vocab_size, embedding_dim=embedding_dim).to(device)
 
 		self.input_size = embedding_dim
 		self.hidden_size = hidden_size
 		self.device = device
 		self.num_layers = num_layers
 		self.embedding_dropout = nn.Dropout(0.3)
-		self.emb = nn.Embedding(num_embeddings=vocab_size,
-								embedding_dim=embedding_dim).to(device)
+		self.embeddings = embeddings
 
 		self.lstm = nn.LSTM(input_size=embedding_dim,
 							hidden_size=hidden_size,
@@ -165,8 +184,9 @@ class LSTMModel(nn.Module):
 							batch_first=True,
 							bidirectional=True,
 							num_layers=num_layers).to(device)
-
+		# use for bidirectional
 		self.classifier = nn.Linear(hidden_size * 2, vocab_size).to(device)
+		# self.classifier = nn.Linear(hidden_size, vocab_size).to(device)
 
 	def forward(self, inp, prev_state):
 		emb = self.emb(inp)
@@ -175,24 +195,26 @@ class LSTMModel(nn.Module):
 		out, state = self.lstm(emb, prev_state)
 		logits = self.classifier(out)
 		return logits, state
-		# return self.classifier(out).view(emb.size(0), emb.size(1), -1)
 
 	def init_state(self, sequence_length):
+		# use for bidirectional
 		return (torch.zeros(self.num_layers * 2, sequence_length, self.hidden_size).to(self.device),
 				torch.zeros(self.num_layers * 2, sequence_length, self.hidden_size).to(self.device))
+		# return (
+		# torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device),
+		# torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device))
 
 
-def compute_perplexity(model, batched_data, bptt=20):
+def compute_perplexity(model, batched_data, batch_size, bptt=20):
 	model.eval()
 
 	with torch.no_grad():  # tells Pytorch not to store values of intermediate computations for backward pass because we not gonna need gradients.
 		loss = 0
 		batch_count = 0
-		state_h, state_c = model.init_state(20)
+		state_h, state_c = model.init_state(batch_size)
 		for i in range(0, batched_data.size(1) - 1, bptt):
 			x, y = get_batch(batched_data, i)
 			y_pred, (state_h, state_c) = model(x, (state_h, state_c))
-
 			loss += torch.nn.functional.cross_entropy(
 				y_pred.reshape(x.size(0) * x.size(1), -1), y.reshape(-1)).item()
 			batch_count += 1
@@ -210,7 +232,7 @@ def get_lr(optimizer):
 		return param_group['lr']
 
 
-def train_loop(model, batch_data, bptt=20):
+def train_loop(model, batch_data, batch_size, bptt=20):
 	model.train()
 
 	# if we have dropout in neural network, we need to use model.train()
@@ -236,7 +258,7 @@ def train_loop(model, batch_data, bptt=20):
 	curr_perplexity = None
 	perplexity = None
 	for epoch in range(500):
-		state_h, state_c = model.init_state(20)
+		state_h, state_c = model.init_state(batch_size)
 		for i in range(0, batch_data.size(0) - 1, bptt):
 
 			x, y = get_batch(batch_data, i)
@@ -268,7 +290,8 @@ def train_loop(model, batch_data, bptt=20):
 
 				# computing validation set perplexity in every 500 iteration.
 				if it % 500 == 0:
-					curr_perplexity = compute_perplexity(model, batch_data, bptt)
+					curr_perplexity = compute_perplexity(model, batch_data, batch_size,
+														 bptt)
 
 					lr_scheduler.step(curr_perplexity)
 
