@@ -1,23 +1,21 @@
 import math
-from typing import List, Tuple
 import os.path
-from typing import Protocol, List
+from typing import List
+from typing import Tuple
 
-import nltk
 import numpy as np
 import pandas as pd
 import torch
-from gensim.models import Word2Vec
-from nltk.tokenize import sent_tokenize, word_tokenize
+from gensim.models import Word2Vec, FastText
+from nltk.tokenize import sent_tokenize
+from nltk.tokenize import word_tokenize
 from sklearn.model_selection import train_test_split
 from torch import Tensor
 from torch import nn
-from torch.autograd import Variable
 from torch.nn import TransformerEncoderLayer, TransformerEncoder
 from torch.types import Device
 from torchtext.vocab import build_vocab_from_iterator, Vocab
-from gensim.models import Word2Vec, FastText
-from nltk.tokenize import sent_tokenize
+from typing_extensions import Protocol
 
 INIT_DATA = [["გამარჯობა", "როგორ", "ხარ?"], ["რავი", "კარგად", "შენ?"]]
 
@@ -71,22 +69,31 @@ class GeorgianWord2VecModel:
         model.train(sentences, total_examples=model.corpus_count, epochs=model.epochs)
         model.save(self.__model_name)
 
-	# Returns vector corresponding to passed word
-	def get_vector(self, word: str) -> List[int]:
-		return Word2Vec.load(self.__model_name).wv[word]
+    # Returns vector corresponding to passed word
+    def get_vector(self, word: str) -> List[int]:
+        return Word2Vec.load(self.__model_name).wv[word]
 
-    def get_embeddings(self):
-        return list(self.get_model().wv.index_to_key)
 
-	@staticmethod
-	def __convert_file_into_input(file_path: str) -> List[List[str]]:
-		with open(file_path, 'r') as f:
-			data = f.read()
+class GeorgianFastTextModel:
+    def __init__(self, load: bool = False) -> None:
+        print("Initializing data")
+        self.__model_name = "fasttext.model"
+        if not load or not os.path.exists(self.__model_name):
+            model = FastText(sentences=INIT_DATA, vector_size=100, window=5,
+                             min_count=1, workers=4, epochs=3)
+            model.save(self.__model_name)
+        print("Model created!")
 
-		sentences = sent_tokenize(data)
-		print(sentences)
-		return [[word.strip() for word in sentence.split(" ")] for sentence in
-				sentences]
+        def train(self, file_path: str) -> None:
+            model = self.get_model()
+            sentences = convert_file_into_input(file_path)
+            model.build_vocab(sentences, update=True)
+            model.train(sentences, total_examples=model.corpus_count,
+                        epochs=model.epochs)
+            model.save(self.__model_name)
+
+        def get_model(self) -> FastText:
+            return FastText.load(self.__model_name)
 
 
 class GeorgianLanguageDatasetLoader:
@@ -203,6 +210,7 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.size(0)]
         return self.dropout(x)
 
+
 def create_emb_layer(weights_matrix, non_trainable=False):
     num_embeddings, embedding_dim = weights_matrix.size()
     emb_layer = nn.Embedding(num_embeddings, embedding_dim)
@@ -282,48 +290,23 @@ def compute_perplexity(model, batched_data, batch_size, bptt=20):
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
-	for param_group in optimizer.param_groups:
-		return param_group['lr']
-    def get_vector(self, word: str) -> List[int]:
-        return Word2Vec.load(self.__model_name).wv.get_vector(word)
 
 
-class GeorgianFastTextModel:
-    def __init__(self, load: bool = False) -> None:
-        print("Initializing data")
-        self.__model_name = "fasttext.model"
-        if not load or not os.path.exists(self.__model_name):
-            model = FastText(sentences=INIT_DATA, vector_size=100, window=5, min_count=1, workers=4, epochs=3)
-            model.save(self.__model_name)
-        print("Model created!")
 def train_loop(model, batch_data, batch_size, bptt=20):
     model.train()
 
     # if we have dropout in neural network, we need to use model.train()
-    def get_model(self) -> FastText:
-        return FastText.load(self.__model_name)
 
     # L2 L=Loss+|W| , Weight decay L = Loss, DL=DLoss + dW
     # we add weight decay (L2 regularization) to avoid overfitting. weight decay = L2
     # try removing it and see what happens.
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
-    def train(self, file_path: str) -> None:
-        model = self.get_model()
-        sentences = convert_file_into_input(file_path)
-        model.build_vocab(sentences, update=True)
-        model.train(sentences, total_examples=model.corpus_count, epochs=model.epochs)
-        model.save(self.__model_name)
+
 
     # we will reduce initial learning rate by 'lr=lr*factor' every time validation perplexity doesn't improve within certain range.
     # details here https://pytorch.org/docs/stable/optim.html#torch.optim.lr_scheduler.ReduceLROnPlateau
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5,
                                                               min_lr=1e-6, patience=10)
-    def get_vector(self, word: str) -> List[int]:
-        return FastText.load(self.__model_name).wv.get_vector(word)
-	# we will reduce initial learning rate by 'lr=lr*factor' every time validation perplexity doesn't improve within certain range.
-	# details here https://pytorch.org/docs/stable/optim.html#torch.optim.lr_scheduler.ReduceLROnPlateau
-	lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5,
-															  min_lr=1e-6, patience=10)
 
     crit = nn.CrossEntropyLoss(reduction="mean")
 
@@ -331,11 +314,7 @@ def train_loop(model, batch_data, batch_size, bptt=20):
 
     # calc_accuracy(model)
 
-    it = 1
-    total_loss = 0
-    curr_perplexity = None
-    perplexity = None
-    for epoch in range(500):
+    for epoch in range(100):
         state_h, state_c = model.init_state(batch_size)
         for i in range(0, batch_data.size(0) - 1, bptt):
 
@@ -351,70 +330,45 @@ def train_loop(model, batch_data, batch_size, bptt=20):
             y_pred, (state_h, state_c) = model(x, (state_h, state_c))
             # y_pred has shape (batch_size, max_seq_len, vocab_size), y has shape (batch_size, max_seq_len), and we
             # need to compute average Cross Entropy across batch and sequence dimensions. For this, we first reshape tensors accordingly.
-            loss = crit(y_pred.reshape(x.size(0) * x.size(1), -1), y.reshape(-1))
-            total_loss += loss.item()  # (zero dimentional tensor).item() -> one number
+            y_pred, (state_h, state_c) = model(x, (state_h, state_c))
+            loss = crit(y_pred.transpose(1, 2), y)
 
             state_h = state_h.detach()
             state_c = state_c.detach()
 
-            # running backprop.
             loss.backward()
-
-            # doing gradient descent step.
             optimizer.step()
-
-            # we are logging current loss/perplexity in every 100 iteration (in every 100 batch)
-            if it % 100 == 0:
-
-                # computing validation set perplexity in every 500 iteration.
-                if it % 500 == 0:
-                    curr_perplexity = compute_perplexity(model, batch_data, batch_size,
-                                                         bptt)
-
-                    lr_scheduler.step(curr_perplexity)
-
-                    # making checkpoint of best model weights.
-                    if not perplexity or curr_perplexity < perplexity:
-                        torch.save(model.state_dict(), 'model')
-                        perplexity = curr_perplexity
-
-                print('Epoch', epoch + 1, '| Iter', it, '| Avg Train Loss',
-                      total_loss / 100, '| Dev Perplexity', curr_perplexity, '| LR ',
-                      get_lr(optimizer))
-                total_loss = 0
-
-            it += 1
-
-
+            print({'epoch': epoch, 'batch': i, 'loss': loss.item()})
 def generate_text(model, device: Device, vocab: Vocab, context: str,
                   length: int = 10, ):
     model = model.to(device)
     model.eval()
 
     state_h, state_c = model.init_state(1)
+    words = context.split(' ')
 
-    res = context.split(' ')
-    for i in range(length):
-        x = vocab(word_tokenize(''.join(res)))
-        x = torch.LongTensor(x).view(1, len(x)).to(device)
+    for i in range(0, length):
+        x = torch.tensor([[vocab.get_stoi()[w] for w in words[i:]]]).to(device)
         y_pred, (state_h, state_c) = model(x, (state_h, state_c))
-        y_pred = torch.topk(y_pred[0, -1], dim=-1, k=5).indices
 
-        y_pred = [i.item() for i in y_pred if i.item() not in [0, 1]]
-        res.append(vocab.get_itos()[np.random.choice(y_pred)])
+        last_word_logits = y_pred[0][-1]
+        p = torch.nn.functional.softmax(last_word_logits, dim=0).detach().cpu().numpy()
+        p /= p.sum()
+        word_index = np.random.choice(len(last_word_logits), p=p)
+        words.append(vocab.get_itos()[word_index])
 
-    return ' '.join(res)
+    return words
 
 class TransformerModel(nn.Module):
 
     def __init__(self, ntoken: int, d_model: int, nhead: int, d_hid: int,
-                 nlayers: int, dropout: float = 0.5):
+                 nlayers: int, dropout: float = 0.5, embeddings=None):
         super().__init__()
         self.model_type = 'Transformer'
+        self.encoder, num_embeddings, embedding_dim = create_emb_layer(embeddings, True)
         self.pos_encoder = PositionalEncoding(d_model, dropout)
         encoder_layers = TransformerEncoderLayer(d_model, nhead, d_hid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-        self.encoder = nn.Embedding(ntoken, d_model)
         self.d_model = d_model
         self.decoder = nn.Linear(d_model, ntoken)
 
@@ -445,3 +399,4 @@ class TransformerModel(nn.Module):
 def generate_square_subsequent_mask(sz: int) -> Tensor:
     """Generates an upper-triangular matrix of -inf, with zeros on diag."""
     return torch.triu(torch.ones(sz, sz) * float('-inf'), diagonal=1)
+
