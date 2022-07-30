@@ -53,7 +53,7 @@ class GeorgianModel(Protocol):
 class GeorgianWord2VecModel:
     def __init__(self, load: bool = False) -> None:
         print("Initializing data")
-        self.__model_name = "word2vec.model"
+        self.__model_name = "../resources/word2vec.model"
         if not load or not os.path.exists(self.__model_name):
             model = Word2Vec(sentences=INIT_DATA, vector_size=100, window=5, min_count=1, workers=4, epochs=3)
             model.save(self.__model_name)
@@ -77,7 +77,7 @@ class GeorgianWord2VecModel:
 class GeorgianFastTextModel:
     def __init__(self, load: bool = False) -> None:
         print("Initializing data")
-        self.__model_name = "fasttext.model"
+        self.__model_name = "../resources/fasttext.model"
         if not load or not os.path.exists(self.__model_name):
             model = FastText(sentences=INIT_DATA, vector_size=100, window=5,
                              min_count=1, workers=4, epochs=3)
@@ -257,8 +257,8 @@ class LSTMModel(nn.Module):
         # return (torch.zeros(self.num_layers * 2, sequence_length, self.hidden_size).to(self.device),
         #         torch.zeros(self.num_layers * 2, sequence_length, self.hidden_size).to(self.device))
         return (
-        torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device),
-        torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device))
+            torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device),
+            torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device))
 
 
 def compute_perplexity(model, batched_data, batch_size, bptt=20):
@@ -298,7 +298,6 @@ def train_loop(model, batch_data, batch_size, bptt=20):
     # try removing it and see what happens.
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
-
     # we will reduce initial learning rate by 'lr=lr*factor' every time validation perplexity doesn't improve within certain range.
     # details here https://pytorch.org/docs/stable/optim.html#torch.optim.lr_scheduler.ReduceLROnPlateau
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5,
@@ -313,7 +312,6 @@ def train_loop(model, batch_data, batch_size, bptt=20):
     for epoch in range(500):
         state_h, state_c = model.init_state(batch_size)
         for i in range(0, batch_data.size(0) - 1, bptt):
-
             x, y = get_batch(batch_data, i)
 
             # if we don't do this, pytorch will accumulate gradients (summation) from previous backprop to next backprop and so on...
@@ -335,6 +333,8 @@ def train_loop(model, batch_data, batch_size, bptt=20):
             loss.backward()
             optimizer.step()
             print({'epoch': epoch, 'batch': i, 'loss': loss.item()})
+
+
 def generate_text(model, device: Device, vocab: Vocab, context: str,
                   length: int = 10, ):
     model = model.to(device)
@@ -344,7 +344,8 @@ def generate_text(model, device: Device, vocab: Vocab, context: str,
     words = context.split(' ')
 
     for i in range(0, length):
-        x = torch.tensor([[vocab.get_stoi()[w] if w in vocab.get_stoi() else vocab['<unk>'] for w in words[i:]]]).to(device)
+        x = torch.tensor([[vocab.get_stoi()[w] if w in vocab.get_stoi() else vocab['<unk>'] for w in words[i:]]]).to(
+            device)
         y_pred, (state_h, state_c) = model(x, (state_h, state_c))
 
         last_word_logits = y_pred[0][-1]
@@ -354,6 +355,7 @@ def generate_text(model, device: Device, vocab: Vocab, context: str,
         words.append(vocab.get_itos()[word_index])
 
     return ' '.join(words)
+
 
 class TransformerModel(nn.Module):
 
@@ -395,4 +397,3 @@ class TransformerModel(nn.Module):
 def generate_square_subsequent_mask(sz: int) -> Tensor:
     """Generates an upper-triangular matrix of -inf, with zeros on diag."""
     return torch.triu(torch.ones(sz, sz) * float('-inf'), diagonal=1)
-
