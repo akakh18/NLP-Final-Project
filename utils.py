@@ -81,3 +81,4 @@ class GeorgianFastTextModel:
 
     def get_vector(self, word: str) -> List[int]:
         return FastText.load(self.__model_name).wv.get_vector(word)
+
