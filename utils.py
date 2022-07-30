@@ -84,16 +84,16 @@ class GeorgianFastTextModel:
             model.save(self.__model_name)
         print("Model created!")
 
-        def train(self, file_path: str) -> None:
-            model = self.get_model()
-            sentences = convert_file_into_input(file_path)
-            model.build_vocab(sentences, update=True)
-            model.train(sentences, total_examples=model.corpus_count,
-                        epochs=model.epochs)
-            model.save(self.__model_name)
+    def train(self, file_path: str) -> None:
+        model = self.get_model()
+        sentences = convert_file_into_input(file_path)
+        model.build_vocab(sentences, update=True)
+        model.train(sentences, total_examples=model.corpus_count,
+                    epochs=model.epochs)
+        model.save(self.__model_name)
 
-        def get_model(self) -> FastText:
-            return FastText.load(self.__model_name)
+    def get_model(self) -> FastText:
+        return FastText.load(self.__model_name)
 
 
 class GeorgianLanguageDatasetLoader:
@@ -213,11 +213,7 @@ class PositionalEncoding(nn.Module):
 
 def create_emb_layer(weights_matrix, non_trainable=False):
     num_embeddings, embedding_dim = weights_matrix.size()
-    emb_layer = nn.Embedding(num_embeddings, embedding_dim)
-    emb_layer.load_state_dict({'weight': weights_matrix})
-    if non_trainable:
-        emb_layer.weight.requires_grad = False
-
+    emb_layer = nn.Embedding.from_pretrained(weights_matrix, freeze=False)
     return emb_layer, num_embeddings, embedding_dim
 
 
@@ -241,12 +237,12 @@ class LSTMModel(nn.Module):
                             hidden_size=hidden_size,
                             bias=True,
                             batch_first=True,
-                            bidirectional=True,
+                            # bidirectional=True,
                             num_layers=num_layers,
                             dropout=0.25).to(device)
         # use for bidirectional
-        self.classifier = nn.Linear(hidden_size * 2, vocab_size).to(device)
-        # self.classifier = nn.Linear(hidden_size, vocab_size).to(device)
+        # self.classifier = nn.Linear(hidden_size * 2, vocab_size).to(device)
+        self.classifier = nn.Linear(hidden_size, vocab_size).to(device)
 
     def forward(self, inp, prev_state):
         emb = self.emb(inp)
@@ -258,11 +254,11 @@ class LSTMModel(nn.Module):
 
     def init_state(self, sequence_length):
         # use for bidirectional
-        return (torch.zeros(self.num_layers * 2, sequence_length, self.hidden_size).to(self.device),
-                torch.zeros(self.num_layers * 2, sequence_length, self.hidden_size).to(self.device))
-        # return (
-        # torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device),
-        # torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device))
+        # return (torch.zeros(self.num_layers * 2, sequence_length, self.hidden_size).to(self.device),
+        #         torch.zeros(self.num_layers * 2, sequence_length, self.hidden_size).to(self.device))
+        return (
+        torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device),
+        torch.zeros(self.num_layers, sequence_length, self.hidden_size).to(self.device))
 
 
 def compute_perplexity(model, batched_data, batch_size, bptt=20):
@@ -314,7 +310,7 @@ def train_loop(model, batch_data, batch_size, bptt=20):
 
     # calc_accuracy(model)
 
-    for epoch in range(100):
+    for epoch in range(500):
         state_h, state_c = model.init_state(batch_size)
         for i in range(0, batch_data.size(0) - 1, bptt):
 
@@ -348,7 +344,7 @@ def generate_text(model, device: Device, vocab: Vocab, context: str,
     words = context.split(' ')
 
     for i in range(0, length):
-        x = torch.tensor([[vocab.get_stoi()[w] for w in words[i:]]]).to(device)
+        x = torch.tensor([[vocab.get_stoi()[w] if w in vocab.get_stoi() else vocab['<unk>'] for w in words[i:]]]).to(device)
         y_pred, (state_h, state_c) = model(x, (state_h, state_c))
 
         last_word_logits = y_pred[0][-1]
@@ -357,7 +353,7 @@ def generate_text(model, device: Device, vocab: Vocab, context: str,
         word_index = np.random.choice(len(last_word_logits), p=p)
         words.append(vocab.get_itos()[word_index])
 
-    return words
+    return ' '.join(words)
 
 class TransformerModel(nn.Module):
 
